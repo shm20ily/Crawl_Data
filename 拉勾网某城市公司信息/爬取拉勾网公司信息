@@ -1,0 +1,100 @@
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from lxml import etree
+import csv
+import time
+
+data_li1, data_li2 = [], []
+data_dic = {}
+options = webdriver.ChromeOptions()  # 设置谷歌驱动器的环境
+driver = webdriver.Chrome(options=options)  # 创建一个谷歌驱动器
+
+
+def run():
+    for page in range(30):
+        source = driver.page_source
+        WebDriverWait(driver=driver, timeout=10).until(
+            EC.presence_of_element_located((By.XPATH, '//span[contains(@class,"pager_next ")]')))
+        parse_list_page(source)  # 获取前6页的数据
+        next_btn = driver.find_element(By.XPATH, '//*[@id="company_list"]/div/div/span[last()]')
+        if page == 5:
+            break
+        else:
+            next_btn.click()
+            time.sleep(4)
+
+
+def parse_list_page(source):
+    html = etree.HTML(source)
+    div_list = driver.find_elements(By.XPATH, '//*[@id="company_list"]/ul/li/div[1]/h4[1]')  # 规模/领域
+    for n, h_tag in enumerate(div_list):
+        print(n)
+        div_str = div_list[n].text.split('/')
+        field = div_str[0]
+        scale = div_str[-1]
+        print(f'行业领域:{field}, 公司规模:{scale}')
+        data_dic = {'行业领域': field, '公司规模': scale}
+        data_li1.append(data_dic)
+    cpy_url = html.xpath('//h3[@class="company-name wordCut"]/a/@href')  # 获取公司URL
+    for c_url in cpy_url:
+        request_detall_page(c_url)  # 传入公司URL
+        time.sleep(2)
+
+
+def request_detall_page(c_url):  # 解析公司URL
+    driver.execute_script("window.open('%s')" % c_url)
+    driver.switch_to.window(driver.window_handles[1])  # 切换页面
+    source = driver.page_source
+    get_data(source)
+    driver.close()  # 关闭窗口
+    time.sleep(1)
+    driver.switch_to.window(driver.window_handles[0])  # 切换回来
+
+
+def get_data(source):
+    html = etree.HTML(source)
+    full_name = html.xpath('//h1[@class="company_main_title"]/a/@title')[0]
+    short_name = html.xpath('//h1[@class="company_main_title"]/a//text()')[0]
+    short_name = short_name.replace('\n', '')
+    post_num = html.xpath('//li[1]/strong//text()')[0]
+    post_num = post_num.replace('\n', '')
+    rate = html.xpath('//li[2]/strong//text()')[0]
+    rate = rate.replace('\n', '')
+    eval_num = html.xpath('//li[4]/a/strong//text()')[0]
+    eval_num = eval_num.replace('\n', '')
+    print(f'全称:{full_name}, 简称:{short_name}, 招聘职位:{post_num}, 面试及时处理率:{rate}, 面试评价:{eval_num}')
+    data_dic = {'全称': full_name, '简称': short_name, '招聘职位': post_num, '面试及时处理率': rate, '面试评价': eval_num}
+    data_li2.append(data_dic)
+
+
+def save_data():
+    with open('01.csv', 'w', encoding='utf-8', newline='') as f:
+        writer = csv.DictWriter(f, ["行业领域", "公司规模"])
+        writer.writeheader()
+        writer.writerows(data_li1)
+    with open('02.csv', 'w', encoding='utf-8', newline='') as f:
+        writer = csv.DictWriter(f, ["全称", '简称', "招聘职位", "面试及时处理率", "面试评价"])
+        writer.writeheader()
+        writer.writerows(data_li2)
+
+
+def main():
+    url = 'https://www.lagou.com/'
+    driver.get(url)
+    time.sleep(1)
+    driver.maximize_window()  # 最大化窗口：为了方便我们扫码
+    driver.find_element(By.XPATH, '//*[@id="cboxClose"]').click()
+    # 点击登录
+    driver.find_element(By.XPATH, '//ul[@class="passport"]/li[1]/a').click()
+    driver.find_element(By.XPATH, '//div[@class="sc-iCfMLu eKQdwl"]/div').click()  # 勾选同意并手动微信扫码登录
+    time.sleep(15)  # 等待15秒，给足时间我们扫码
+    driver.find_element(By.XPATH, '//ul[@class="lg_tbar_tabs"]/li[4]/a').click()  # 点击公司
+    run()
+    time.sleep(20)
+    print(data_li1, data_li2, end='\n')
+    save_data()
+
+
+main()
