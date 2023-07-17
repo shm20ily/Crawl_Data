@@ -1,0 +1,93 @@
+import pandas as pd
+from pyecharts import options as opts
+from pyecharts.charts import Pie
+from pyecharts.charts import Bar
+from pyecharts.charts import WordCloud
+from pyecharts.globals import SymbolType
+import jieba.analyse
+from collections import Counter
+
+poetry = pd.read_csv("poetry_data.csv")
+# print(poetry)
+
+# 只保留中文字符串
+poetry['朝代'] = poetry['朝代'].str.replace(r'[^\u4e00-\u9fa5]', '')
+# print(poetry['朝代'].values.tolist())
+
+txt = poetry['古诗内容'].str.cat(sep='\n')
+# 读入停用词表
+stop_words = [line.strip() for line in open('stopwords.txt', encoding='UTF-8').readlines()]
+# 字段分词处理
+word_num = jieba.analyse.extract_tags(txt,
+                                      topK=100,
+                                      withWeight=True,
+                                      allowPOS=())
+# 去停用词
+word_num_selected = []
+for i in word_num:
+    if i[0] not in stop_words:
+        word_num_selected.append(i)
+key_words = pd.DataFrame(word_num_selected, columns=['words', 'num'])
+
+# 词云图
+word1 = WordCloud(init_opts=opts.InitOpts(width='1350px', height='750px'))
+word1.add("", [*zip(key_words.words, key_words.num)],
+          word_size_range=[20, 200],
+          shape=SymbolType.DIAMOND)
+word1.set_global_opts(title_opts=opts.TitleOpts('诗词——词云图'),
+                      toolbox_opts=opts.ToolboxOpts())
+word1.render('诗词——词云图.html')
+
+cut_li = jieba.cut(txt)
+res_dict = {}
+# 进行词频统计
+for i in cut_li:
+    res_dict[i] = res_dict.get(i, 0) + 1
+res_list = list(res_dict.items())
+# 降序排序
+res_list.sort(key=lambda x: x[1], reverse=True)
+fin_res_list = []
+
+# 去除单个字的词
+for item in res_list:
+    if (len(item[0]) >= 2):
+        fin_res_list.append(item)
+x, y = [], []
+for i in range(10):
+    word, count = fin_res_list[i]
+    pstr = str(i + 1) + ':'
+    # print(pstr, end=' ')
+    # print(word, count)
+    x.append(word)
+    y.append(count)
+# print(x, y)
+# 柱状图
+(
+    Bar()
+    .add_xaxis(x)
+    .add_yaxis("", y)
+    .reversal_axis()
+    .set_series_opts(label_opts=opts.LabelOpts(position="right"))
+    .render("bar_reversal_axis.html")
+)
+
+# 饼图
+
+dynasty_wordcount = dict(Counter(poetry['朝代'].values.tolist()))
+name = dynasty_wordcount.keys()
+value = dynasty_wordcount.values()
+data_pair = [list(z) for z in zip(name, value)]
+# print(data_pair)
+
+# (
+#     Pie()
+#     .add("",
+#          radius=["35%", "55%"],
+#          data_pair=data_pair,
+#          )
+#     .set_global_opts(
+#         legend_opts=opts.LegendOpts(type_="scroll", pos_left="80%", orient="vertical")
+#     )
+#     .set_series_opts(label_opts=opts.LabelOpts(formatter="{b}:{c} ({d})%)"))
+#     .render("pie.html")
+# )
