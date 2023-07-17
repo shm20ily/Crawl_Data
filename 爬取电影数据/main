@@ -1,0 +1,157 @@
+import json
+import random
+import time
+import requests
+import csv
+import os
+from lxml import etree
+from pymysql import *
+import re
+import pandas as pd
+from sqlalchemy import create_engine
+
+# https://mesh.if.iqiyi.com/portal/videolib/pcw/data?&ret_num=100&page_id=1&channel_id=1
+
+engine = create_engine('mysql+pymysql://root:root@localhost:3306/dbm')
+
+
+class spider(object):
+    def __init__(self):
+        self.url = 'https://mesh.if.iqiyi.com/portal/videolib/pcw/data?'  # 电影的列表
+        self.headers = {  # 请求头
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36 Edg/109.0.1518.78',
+            'Origin': 'https://www.iqiyi.com',
+            'Referer': 'https://www.iqiyi.com/list/%E7%94%B5%E5%BD%B1'
+        }
+
+    def init(self):
+        if not os.path.exists('temp.csv'):  # 判断本地是否有csv
+            with open('temp.csv', 'w', newline='') as writer_f:
+                writer = csv.writer(writer_f)
+                writer.writerow(
+                    ['title', 'rate', 'casts', 'cover', 'detailLink', 'types',
+                     'time', 'movieTime', 'summary'])
+
+        if not os.path.exists('Page.txt'):  # 保存当前所爬取的页数
+            with open('Page.txt', 'w', encoding='utf8') as f:
+                f.write('0\n')
+
+        try:  # 在数据库中创建对应的表格
+            con = connect(host='localhost', user='root', password='root', database='dbm', port=3306, charset='utf8mb4')
+            sqlcommand = '''
+                        create table kunkun (
+                            id int primary key auto_increment,
+                            title varchar(1000),
+                            rate varchar(255),                         
+                            casts varchar(1000),
+                            cover varchar(1000),
+                            detailLink varchar(1000),
+                            types varchar(1000),
+                            time varchar(255),
+                            movieTime varchar(255),
+                            summary varchar(1000)
+                        )
+            '''
+            cursor = con.cursor()
+            cursor.execute(sqlcommand)
+            con.commit()
+        except:  # 如果表格存在则跳过
+            pass
+
+    def getPage(self):
+        with open('Page.txt', 'r') as r_f:
+            return r_f.readlines()[-1].strip()  # 返回之前爬取的最后一页的页数
+
+    def setPage(self, newPage):
+        with open('Page.txt', 'a') as w_f:
+            w_f.write(str(newPage) + '\n')
+
+    def spiderMain(self):
+        page = self.getPage()
+        param = {
+            'ret_num': 100,
+            'page_id': int(page),
+            'channel_id': 1,
+        }
+        print('正在爬取第{}页'.format(int(page) + 1))
+        print('歇会')
+        time.sleep(3)
+        try:
+            RowJson = requests.get(self.url, headers=self.headers, params=param).json()  # 电影页面数据
+            infoJson = RowJson['data']  # 获取电影的信息data
+            resultList = []
+            try:
+                print(len(infoJson))
+                for i in range(len(infoJson)):  # 爬取数据的主要代码
+                    resultData = []
+                    # 电影名字（title)
+                    title = RowJson['data'][i]['title']
+                    resultData.append(title)
+                    # 电影评分（rate)
+                    try:
+                        rate = RowJson['data'][i]['sns_score']
+                        resultData.append(rate)
+                    except:
+                        rate = '0'
+                        resultData.append(rate)
+                    # 电影演员（casts)
+                    casts = []
+                    tmpCast = RowJson['data'][i]['contributor']
+                    for j in range(len(tmpCast)):
+                        casts.append(tmpCast[j]['name'])
+                    resultData.append(casts)
+                    # 电影封面（cover）
+                    cover = RowJson['data'][i]['image_cover']
+                    resultData.append(cover)
+                    # 电影链接（detailLink）    
+                    detailLink = RowJson['data'][i]['page_url']
+                    resultData.append(detailLink)
+                    # 电影类型（types)
+                    types = RowJson['data'][i]['tag']
+                    resultData.append(types)
+                    # 上映时间（time)
+                    try:
+                        times = RowJson['data'][i]['showDate']
+                        resultData.append(times)
+                    except:
+                        resultData.append(0)
+                    # 电影片长（movieTime)
+                    try:
+                        movieTime = RowJson['data'][i]['duration']
+                        resultData.append(movieTime)
+                    except:
+                        resultData.append(0)
+                    # 电影简介（summary）
+                    resultData.append(RowJson['data'][i]['description'])
+                    resultList.append(resultData)
+            except:
+                pass
+            self.saveToCsv(resultList)
+            self.setPage(int(page) + 1)
+            self.clearCsv()
+            self.spiderMain()
+        except:
+            print('{}页无数据，跳过'.format(int(page) + 1))
+
+    def saveToCsv(self, resultList):
+        with open('temp.csv', 'a', newline='', encoding='utf-8') as f:
+            saveData = csv.writer(f)
+            for rowData in resultList:
+                saveData.writerow(rowData)
+
+    def clearCsv(self):
+        df = pd.read_csv('temp.csv')
+        df.dropna(inplace=True)  # 删除缺失值
+        df.drop_duplicates()  # 删除重复值
+
+    def saveSql(self):
+        df = pd.read_csv('temp.csv')
+        df.to_sql('kunkun', con=engine, index=False, if_exists='append')
+        print('保存成功')
+
+
+if __name__ == '__main__':
+    SpiderObj = spider()
+    SpiderObj.init()
+    SpiderObj.spiderMain()
+    SpiderObj.saveSql()
