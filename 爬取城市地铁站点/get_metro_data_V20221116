@@ -1,0 +1,100 @@
+import json
+import os
+import random
+import time
+import pandas as pd
+import numpy as np
+import warnings
+import requests
+from bs4 import BeautifulSoup
+
+warnings.filterwarnings('ignore')
+# 显示所有列
+pd.set_option('display.max_columns', None)
+
+# 显示所有行
+# pd.set_option('display.max_rows', None)
+
+
+def get_city_list():
+    """
+    获取拥有地铁的所有城市
+    @return:
+    """
+    url = 'http://map.amap.com/subway/index.html'
+    header = {
+        'User-Agent': '"Mozilla/5.0 (Windows NT 6.2; WOW64) AppleWebKit/535.24 (KHTML, like Gecko) Chrome/19.0.1055.1 '
+                      'Safari/535.24"'}
+    res = requests.get(url, headers=header)
+    res.encoding = res.apparent_encoding
+    soup = BeautifulSoup(res.text, 'html.parser')
+
+    name_dict = []
+    # 获取显示出的城市列表
+    for soup_a in soup.find('div', class_='city-list fl').find_all('a'):
+        city_name_py = soup_a['cityname']
+        city_id = soup_a['id']
+        city_name_ch = soup_a.get_text()
+        name_dict.append({'name_py': city_name_py, 'id': city_id, 'name_ch': city_name_ch})
+    # 获取未显示出来的城市列表
+    for soup_a in soup.find('div', class_='more-city-list').find_all('a'):
+        city_name_py = soup_a['cityname']
+        city_id = soup_a['id']
+        city_name_ch = soup_a.get_text()
+        name_dict.append({'name_py': city_name_py, 'id': city_id, 'name_ch': city_name_ch})
+
+    df_city_list = pd.DataFrame(name_dict)
+
+    return df_city_list
+
+
+def get_per_info(data_row):
+    """
+    地铁站点信息获取
+    :param data_row:
+    :return:
+    """
+    id = data_row['id']
+    cityname = data_row['name_py']
+    name = data_row['name_ch']
+
+    url = "http://map.amap.com/service/subway?_1618387860087&srhdata=" + id + '_drw_' + cityname + '.json'
+    header = {
+        'User-Agent': '"Mozilla/5.0 (Windows NT 6.2; WOW64) AppleWebKit/535.24 (KHTML, like Gecko) Chrome/19.0.1055.1 '
+                      'Safari/535.24"'}
+    res = requests.get(url, headers=header)
+    data = json.loads(res.text)
+
+    df_per_city = pd.DataFrame()
+    if data['l']:
+        # 遍历每一条地铁线路
+        for data_line in data['l']:
+            df_per_metro = pd.DataFrame(data_line['st'])
+            df_per_metro = df_per_metro[['n', 'sl', 'poiid', 'sp']]
+            df_per_metro['gd经度'] = df_per_metro['sl'].apply(lambda x: x.split(',')[0])
+            df_per_metro['gd纬度'] = df_per_metro['sl'].apply(lambda x: x.split(',')[1])
+            df_per_metro.drop('sl', axis=1, inplace=True)
+            df_per_metro['路线名称'] = data_line['ln']
+            df_per_metro['城市名称'] = name
+            df_per_metro.rename(columns={'n': '站点名称', 'sp': '拼音名称', 'poiid': 'POI编号'}, inplace=True)
+            df_per_city = df_per_city.append(df_per_metro, ignore_index=True)
+
+    return df_per_city
+
+
+if __name__ == '__main__':
+    """获取有地铁站点的城市名"""
+    df_city_list = get_city_list()
+    print('[ 提示 ]: 共检测到 {0} 个开通地铁的城市'.format(df_city_list.shape[0]))
+
+    df_city_data = pd.DataFrame()
+    for row_index, data_row in df_city_list.iterrows():
+        print('[ 提示 ]: 正在爬取第 {0}/{1} 个城市 {2} 的数据中...'.format(row_index + 1, df_city_list.shape[0],
+                                                                           data_row['name_ch']))
+        """遍历每个城市获取地铁站点信息"""
+        df_per_city = get_per_info(data_row)
+        df_city_data = df_city_data.append(df_per_city, ignore_index=True)
+
+    filepath = os.path.join('各个城市地铁站点', '全国城市地铁站点信息V202211.csv')
+    df_city_data.to_csv('全国城市地铁站点信息V202211.csv', encoding='gbk', index=False)
+    print('[ 提示 ]: 爬取成功，数据已保存在：{0} '.format(filepath))
