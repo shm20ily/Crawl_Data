@@ -1,0 +1,32 @@
+import tushare as ts
+import time
+
+
+def get_data(out_time):
+    while True:
+        df = ts.get_realtime_quotes('600835')  # 600835———上海机电股票代码
+        nowTimes = time.strftime('%H.%M', time.localtime())
+        df.to_csv('股票数据.csv', mode='a', header=False)
+        if float(nowTimes) >= out_time:
+            print('时间到，下班喽')
+            break
+        print(df)
+        time.sleep(3)
+
+
+def work_sleep(start_time):
+    while 1:
+        nowTimes = time.strftime('%H.%M', time.localtime())
+        print('当前时间：' + nowTimes, end=' ')
+        if float(nowTimes) >= start_time:
+            print('醒醒，该起床干活了，拿数据去...')
+            break
+        print('还早着呢，多睡会儿吧...')
+        time.sleep(3)
+
+
+if __name__ == '__main__':
+    # work_sleep(9.00)
+    # get_data(11.30)
+    work_sleep(13.00)
+    get_data(15.00)
